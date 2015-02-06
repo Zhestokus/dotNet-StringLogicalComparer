@@ -10,16 +10,18 @@ namespace StringLogicalComparerConsoleApp
     {
         static void Main(string[] args)
         {
-            var list = new List<String>();
-            var rand = new Random();
+            var array = new[] { "AB1", "AB10", "AB21", "AB3", "AB11", "AB2", "AB20", "AB30", "AB31" };
+            Console.WriteLine("SOURCE: {0}", String.Join(", ", array));
 
-            for (int i = 0; i < 40; i++)
-            {
-                list.Add(String.Format("ABC{0:000}", rand.Next(1, 999)));
-            }
+            var ordinalComparer = StringComparer.Ordinal;
+            Array.Sort(array, ordinalComparer);
 
-            var comparer = new StringLogicalComparer();
-            list.Sort(comparer);
+            Console.WriteLine("ORGINAL: {0}", String.Join(", ", array));
+
+            var logicalComparer = new StringLogicalComparer();
+            Array.Sort(array, logicalComparer);
+
+            Console.WriteLine("LOGICAL: {0}", String.Join(", ", array));
         }
     }
 }
