@@ -1,54 +1,66 @@
-﻿using System;
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace StringLogicalComparerConsoleApp
 {
-    public class StringLogicalComparer : IComparer, IEqualityComparer, IComparer<String>, IEqualityComparer<String>
+    public class StringLogicalComparer : IComparer<String>, IEqualityComparer<String>
     {
-        public static readonly StringLogicalComparer Default;
-        public static readonly StringLogicalComparer CaseInsensitive;
-        public static readonly StringLogicalComparer DetectFloatNumber;
-        public static readonly StringLogicalComparer IgnoreCaseAndDetectFloatNumber;
+        private struct Segment
+        {
+            public int index;
+            public int length;
+            public bool digits;
+        }
+
+        public static readonly StringLogicalComparer Ordinal;
+        public static readonly StringLogicalComparer OrdinalIgnoreCase;
+        public static readonly StringLogicalComparer FloatingNumberSensitive;
+        public static readonly StringLogicalComparer FloatingNumberIgnoreCase;
 
         static StringLogicalComparer()
         {
-            Default = new StringLogicalComparer();
-            CaseInsensitive = new StringLogicalComparer(true, false);
-            DetectFloatNumber = new StringLogicalComparer(false, true);
-            IgnoreCaseAndDetectFloatNumber = new StringLogicalComparer(true, true);
+            Ordinal = new StringLogicalComparer();
+            OrdinalIgnoreCase = new StringLogicalComparer(true, false);
+            FloatingNumberSensitive = new StringLogicalComparer(false, true);
+            FloatingNumberIgnoreCase = new StringLogicalComparer(true, true);
         }
 
-        private struct PartEntry
-        {
-            public int length;
-            public Object value;
-        }
+        private readonly bool _ignoreCase;
+        private readonly bool _floatNumbers;
 
-        private readonly StringComparer comparer;
-        private readonly String decimalSeparator;
+        private readonly String _decimalSeparator;
+        private readonly int _decimalSeparatorLen;
+
+        private readonly StringComparer _stringComparer;
+        private readonly NumberFormatInfo _numberFormatInfo;
 
         public StringLogicalComparer()
             : this(false, false)
         {
         }
-
         public StringLogicalComparer(bool ignoreCase, bool floatNumbers)
         {
-            IgnoreCase = ignoreCase;
-            FloatNumbers = floatNumbers;
+            _ignoreCase = ignoreCase;
+            _floatNumbers = floatNumbers;
 
-            decimalSeparator = NumberFormatInfo.InvariantInfo.NumberDecimalSeparator;
+            _numberFormatInfo = NumberFormatInfo.InvariantInfo;
+            _decimalSeparator = _numberFormatInfo.NumberDecimalSeparator;
 
-            comparer = (IgnoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            _decimalSeparatorLen = _decimalSeparator.Length;
+
+            _stringComparer = (_ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         }
 
-        public bool IgnoreCase { get; private set; }
-        public bool FloatNumbers { get; private set; }
+        public bool IgnoreCase
+        {
+            get { return _ignoreCase; }
+        }
+
+        public bool FloatNumbers
+        {
+            get { return _floatNumbers; }
+        }
 
         public int Compare(Object x, Object y)
         {
@@ -60,178 +72,121 @@ namespace StringLogicalComparerConsoleApp
 
         public int Compare(String x, String y)
         {
-            int xIndex = 0;
-            int yIndex = 0;
-
             x = (x ?? String.Empty);
             y = (y ?? String.Empty);
 
+            var xIndex = 0;
+            var yIndex = 0;
+
             while (xIndex < x.Length || yIndex < y.Length)
             {
-                var xEntry = GetNextPart(x, xIndex);
-                xIndex += xEntry.length;
+                var xSegment = NextSegment(x, xIndex);
+                var ySegment = NextSegment(y, yIndex);
 
+                var order = CompareSegments(x, xSegment, y, ySegment);
+                if (order != 0)
+                    return order;
 
-                var yEntry = GetNextPart(y, yIndex);
-                yIndex += xEntry.length;
-
-                if (xEntry.value is double && yEntry.value is double)
-                {
-                    var xNumber = (double)xEntry.value;
-                    var yNumber = (double)yEntry.value;
-
-                    var order = xNumber.CompareTo(yNumber);
-                    if (order != 0)
-                    {
-                        return order;
-                    }
-                }
-                else
-                {
-                    var xText = Convert.ToString(xEntry.value);
-                    var yText = Convert.ToString(yEntry.value);
-
-                    var order = comparer.Compare(xText, yText);
-                    if (order != 0)
-                    {
-                        return order;
-                    }
-                }
+                xIndex = xSegment.index + xSegment.length;
+                yIndex = ySegment.index + ySegment.length;
             }
-
-            //int count = Math.Max(x.Length, y.Length);
-
-            //for (int i = 0; i < count; i++)
-            //{
-            //    char xChar = (i < x.Length ? x[i] : '\0');
-            //    char yChar = (i < y.Length ? y[i] : '\0');
-
-            //    if (char.IsDigit(xChar) && char.IsDigit(yChar))
-            //    {
-            //        var xsDigits = GetAllDigits(x, i);
-            //        var ysDigits = GetAllDigits(y, i);
-
-            //        var xNumber = Convert.ToDouble(xsDigits, NumberFormatInfo.InvariantInfo);
-            //        var yNumber = Convert.ToDouble(ysDigits, NumberFormatInfo.InvariantInfo);
-
-            //        int result = xNumber.CompareTo(yNumber);
-            //        if (result != 0)
-            //        {
-            //            return result;
-            //        }
-
-            //        i += Math.Max(xsDigits.Length, ysDigits.Length) - 1;
-            //    }
-            //    else
-            //    {
-            //        var xsNonDigits = GetAllNonDigits(x, i);
-            //        var ysNonDigits = GetAllNonDigits(y, i);
-
-            //        var result = comparer.Compare(xsNonDigits, ysNonDigits);
-            //        if (result != 0)
-            //        {
-            //            return result;
-            //        }
-
-            //        i += Math.Max(xsNonDigits.Length, ysNonDigits.Length) - 1;
-            //    }
-            //}
 
             return 0;
         }
 
-        private PartEntry GetNextPart(String text, int startIndex)
+        private Segment NextSegment(String text, int start)
         {
-            PartEntry entry;
+            if (text.Length == 0 || text.Length <= start)
+                return new Segment();
 
-            char @char = (startIndex < text.Length ? text[startIndex] : '\0');
+            var index = start;
+            var separatorReached = false;
+            var decimalSeparator = false;
 
-            if (char.IsDigit(@char))
+            var segment = new Segment
             {
-                var digits = GetAllDigits(text, startIndex);
+                index = index,
+                length = 0,
+                digits = char.IsDigit(text[index])
+            };
 
-                entry.length = digits.Length;
-                entry.value = Convert.ToDouble(digits, NumberFormatInfo.InvariantInfo);
-            }
-            else
+            while (index < text.Length)
             {
-                var nonDigits = GetAllNonDigits(text, startIndex);
+                var @char = text[index];
 
-                entry.length = nonDigits.Length;
-                entry.value = nonDigits;
-            }
-
-            return entry;
-        }
-
-        private String GetAllNonDigits(String text, int startIndex)
-        {
-            var result = String.Empty;
-            for (var i = startIndex; i < text.Length; i++)
-            {
-                if (char.IsDigit(text[i]))
+                if (char.IsDigit(@char))
                 {
-                    break;
-                }
-
-                result += text[i];
-            }
-
-            return result;
-        }
-
-        private String GetAllDigits(String text, int startIndex)
-        {
-            var result = String.Empty;
-            for (var i = startIndex; i < text.Length; i++)
-            {
-                if (!char.IsDigit(text[i]))
-                {
-                    var strChar = Convert.ToString(text[i]);
-                    if (!FloatNumbers || strChar != decimalSeparator || result.Contains(strChar))
-                    {
+                    if (!segment.digits)
                         break;
+                }
+                else
+                {
+                    if (segment.digits)
+                    {
+                        decimalSeparator = IsDecimalSeparator(text, index);
+
+                        if (_floatNumbers && !separatorReached && decimalSeparator)
+                            separatorReached = true;
+                        else
+                            break;
                     }
                 }
 
-                result += text[i];
+                if (decimalSeparator)
+                {
+                    segment.length += _decimalSeparatorLen;
+                    index += _decimalSeparatorLen;
+
+                    decimalSeparator = false;
+                }
+                else
+                {
+                    segment.length++;
+                    index++;
+                }
             }
 
-            if (result.EndsWith(decimalSeparator))
-            {
-                result = result.Substring(0, result.Length - 1);
-            }
-
-            return result;
+            return segment;
         }
 
-        public bool Equals(Object x, Object y)
+        private int CompareSegments(String x, Segment xSegment, String y, Segment ySegment)
         {
-            var xStr = Convert.ToString(x);
-            var yStr = Convert.ToString(y);
+            var xs = x.Substring(xSegment.index, xSegment.length);
+            var ys = y.Substring(ySegment.index, ySegment.length);
 
-            return Equals(xStr, yStr);
+            if (xSegment.digits && ySegment.digits)
+            {
+                double xd, yd;
+                if (double.TryParse(xs, NumberStyles.Any, _numberFormatInfo, out xd) &&
+                    double.TryParse(ys, NumberStyles.Any, _numberFormatInfo, out yd))
+                {
+                    return xd.CompareTo(yd);
+                }
+            }
+
+            return _stringComparer.Compare(xs, ys);
+        }
+
+        private bool IsDecimalSeparator(String text, int index)
+        {
+            if (_decimalSeparatorLen == 1)
+                return text[index] == _decimalSeparator[0];
+
+            var order = String.Compare(text, index, _decimalSeparator, 0, _decimalSeparatorLen);
+            return (order == 0);
         }
 
         public bool Equals(String x, String y)
         {
-            return Compare(x, y) == 0;
+            return _stringComparer.Equals(x, y);
         }
 
-        public int GetHashCode(String str)
+        public int GetHashCode(String obj)
         {
-            if (str == null)
-            {
+            if (obj == null)
                 return 0;
-            }
 
-            return comparer.GetHashCode(str);
-        }
-
-        public int GetHashCode(object obj)
-        {
-            return GetHashCode(Convert.ToString(obj));
+            return _stringComparer.GetHashCode(obj);
         }
     }
-
 }
