@@ -16,6 +16,7 @@ Array.Sort(array, comparer);
 ```
 
 and also it supports floating numbers too
+
 **now it detects floating number separator according NumberFormatInfo.NumberDecimalSeparator**
 
 check it out an enjoy ;)
