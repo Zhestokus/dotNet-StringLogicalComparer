@@ -18,7 +18,7 @@ namespace StringLogicalComparerConsoleApp
 
             Console.WriteLine("ORGINAL: {0}", String.Join(", ", array));
 
-            var logicalComparer = new StringLogicalComparer();
+            var logicalComparer = StringLogicalComparer.Ordinal;
             Array.Sort(array, logicalComparer);
 
             Console.WriteLine("LOGICAL: {0}", String.Join(", ", array));
